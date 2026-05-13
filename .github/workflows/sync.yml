@@ -1,0 +1,27 @@
+name: Sync HubSpot to Google Sheets
+
+on:
+  schedule:
+    # Every Monday at 6:00 AM Central (12:00 UTC)
+    - cron: "0 12 * * 1"
+  workflow_dispatch:  # allow manual runs from the Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run sync
+        env:
+          HUBSPOT_TOKEN:   ${{ secrets.HUBSPOT_TOKEN }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SA_JSON:  ${{ secrets.GOOGLE_SA_JSON }}
+        run: python scripts/sync_hubspot_deals.py
