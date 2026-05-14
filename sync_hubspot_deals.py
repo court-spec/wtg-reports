@@ -119,35 +119,42 @@ def hs_get_all(endpoint: str, properties: list, associations: list = None):
 
 
 def _search_deals_window(properties: list, start_ms: int, end_ms: int):
-    """Search deals created within a [start_ms, end_ms) window. Max 10K results per HubSpot rules."""
+    """Search deals where EITHER createdate OR migrated_wontime falls in [start_ms, end_ms).
+    HubSpot OR'd via two filterGroups. Max 10K results per query."""
     url = f"{HS_BASE}/crm/v3/objects/deals/search"
-    after = None
     out = []
-    while True:
-        payload = {
-            "filterGroups": [{
-                "filters": [
-                    {"propertyName": "createdate", "operator": "GTE", "value": str(start_ms)},
-                    {"propertyName": "createdate", "operator": "LT",  "value": str(end_ms)},
-                ],
-            }],
-            "sorts": [{"propertyName": "createdate", "direction": "ASCENDING"}],
-            "properties": properties,
-            "limit": 100,
-        }
-        if after:
-            payload["after"] = after
-        r = _request_with_retry("POST", url, headers=HEADERS, json=payload)
-        body = r.json()
-        out.extend(body.get("results", []))
-        paging = body.get("paging", {}).get("next")
-        if not paging:
-            break
-        after = paging.get("after")
-        # Hard safety: if a single window somehow exceeds 10K, stop and warn
-        if len(out) >= 10000:
-            print(f"    ! window {start_ms}-{end_ms} hit 10K cap; some deals may be missed", flush=True)
-            break
+    # Run TWO queries (separately, then dedupe) since combining via filterGroups OR
+    # uses the same `after` cursor for the whole result set and may exceed 10K.
+    seen = set()
+    for date_prop in ("createdate", "migrated_wontime"):
+        after = None
+        while True:
+            payload = {
+                "filterGroups": [{
+                    "filters": [
+                        {"propertyName": date_prop, "operator": "GTE", "value": str(start_ms)},
+                        {"propertyName": date_prop, "operator": "LT",  "value": str(end_ms)},
+                    ],
+                }],
+                "sorts": [{"propertyName": date_prop, "direction": "ASCENDING"}],
+                "properties": properties,
+                "limit": 100,
+            }
+            if after:
+                payload["after"] = after
+            r = _request_with_retry("POST", url, headers=HEADERS, json=payload)
+            body = r.json()
+            for d in body.get("results", []):
+                if d["id"] not in seen:
+                    seen.add(d["id"])
+                    out.append(d)
+            paging = body.get("paging", {}).get("next")
+            if not paging:
+                break
+            after = paging.get("after")
+            if len(out) >= 20000:  # safety
+                print(f"    ! window {start_ms}-{end_ms} hit 20K combined cap", flush=True)
+                break
     return out
 
 
