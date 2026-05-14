@@ -90,6 +90,34 @@ for mig, clean in pairs:
 
 ---
 
+## Pipeline consolidation (added May 14, 2026)
+
+**Goal**: Collapse the 12+ city-specific WTG pipelines (e.g. `Dallas - Wisdom Teeth Guys`, `Dallas - Wisdom Teeth Guys Pipedrive`, `Office Referrals - Dallas`, `Lease Search - DFW`, `Dallas Doctor Search`, etc.) into **one unified pipeline**. Use `market` and `market2` (territory) custom properties on each deal to separate them.
+
+**Why**:
+- Reporting becomes filtering by property, not by pipeline (way more flexible)
+- New markets don't require new pipelines
+- One stage flow = simpler training, fewer mistakes
+- Eliminates the duplicate "...Pipedrive" pipelines created during migration
+
+**Prerequisites** (must be true before consolidation):
+- ✅ `market` custom property is required on every deal (the 571 "Unknown" companies cleanup)
+- ✅ All current pipelines use the same stage names (or get standardized)
+- ✅ Pipedrive → HubSpot sync (if still live) is updated to point at the new unified pipeline
+
+**Migration steps** (high-level):
+1. Standardize stage names across all WTG pipelines
+2. Create the new unified pipeline (e.g. "Wisdom Teeth Guys") with the canonical stage flow
+3. Bulk-move existing deals via HubSpot workflow (within-stage moves only)
+4. Cut over Pipedrive sync to write to the new pipeline
+5. Archive (don't delete) the old pipelines
+
+**Reporting side**:
+- Our dashboards (`scripts/build_pipeline_dashboard.py`, `scripts/build_deal_won_dashboard.py`) already group by Market via `company.market` → no code changes required after consolidation
+- The ZIP-prefix + marketer fallback resolver becomes obsolete once `market` is populated on every deal
+
+---
+
 ## Deliverables for this new session
 
 1. **Map of every migrated_* property and its clean target** (confirm names + types match)
