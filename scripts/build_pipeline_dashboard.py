@@ -143,6 +143,16 @@ _n_total      = len(df)
 _n_unassigned = (df['Territory']=='Unassigned').sum()
 print(f"Loaded {_n_total} deals; {_n_total - _n_unassigned} mapped to a territory ({_n_unassigned} Unassigned)")
 
+# Build territory → market lookup from the data itself (most common market per territory)
+terr_to_market = {}
+zip_to_terr = {}
+zip_to_market = {}
+for terr, grp in df.groupby('Territory'):
+    if grp['Market'].notna().any():
+        terr_to_market[terr] = grp['Market'].mode().iloc[0]
+    else:
+        terr_to_market[terr] = 'UNK'
+
 df_won    = df[df['Status'] == 'Won'].copy()
 df_closed = df[df['Status'].isin(['Won','Lost'])].copy()
 

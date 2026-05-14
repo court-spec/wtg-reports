@@ -121,6 +121,16 @@ df.loc[df['Territory'] == '', 'Territory'] = 'Unassigned'
 
 print(f"Loaded {len(df)} won-deals")
 
+# Build territory → market lookup from the data itself
+terr_to_market = {}
+zip_to_terr = {}
+zip_to_market = {}
+for terr, grp in df.groupby('Territory'):
+    if grp['Market'].notna().any():
+        terr_to_market[terr] = grp['Market'].mode().iloc[0]
+    else:
+        terr_to_market[terr] = 'UNK'
+
 df_won    = df.copy()
 df_closed = df.copy()
 
