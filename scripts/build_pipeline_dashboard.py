@@ -99,7 +99,33 @@ def _to_market_code(val):
 # Try company market first, then deal-level territory
 df['Market'] = df['company_market_lookup'].apply(_to_market_code)
 df.loc[df['Market'].isna(), 'Market'] = df['territory'].apply(_to_market_code)
-# Bucket unmapped deals as 'UNK' instead of dropping (preserves total count)
+
+# ZIP-prefix → Market fallback (catches deals where company.market is missing)
+def _zip_to_market(z):
+    if z is None or pd.isna(z): return None
+    s = str(z).strip().split('-')[0].split('.')[0].zfill(5)[:5]
+    if not s.isdigit(): return None
+    p2 = s[:2]
+    if p2 in ('75','76'): return 'DAL'
+    if p2 == '77':        return 'HOU'
+    if p2 == '78':
+        try:
+            n = int(s[2:])
+            return 'SA' if n < 600 else 'AUS'
+        except: return None
+    if p2 == '85':        return 'PHX'
+    if p2 == '86' and s.startswith('857'): return 'PHX'
+    if p2 in ('83','84'): return 'UT'
+    return None
+
+_z = df['company_zip_lookup'].fillna('').astype(str).where(lambda s: s != '', df['deal_zip'].fillna('').astype(str))
+df.loc[df['Market'].isna(), 'Market'] = _z[df['Market'].isna()].apply(_zip_to_market)
+
+# Final fallback: infer from marketer's most common market
+_known = df.dropna(subset=['Market']).groupby('marketer_assigned')['Market'].agg(lambda s: s.mode().iloc[0] if len(s) > 0 else None).to_dict()
+df.loc[df['Market'].isna(), 'Market'] = df.loc[df['Market'].isna(), 'marketer_assigned'].map(_known)
+
+# Anything still unmapped → UNK
 df['Market'] = df['Market'].fillna('UNK')
 
 # Filter to Dentist Referral + Orthodontist Referral lead sources only
