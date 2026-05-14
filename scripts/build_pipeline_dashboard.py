@@ -99,7 +99,8 @@ def _to_market_code(val):
 # Try company market first, then deal-level territory
 df['Market'] = df['company_market_lookup'].apply(_to_market_code)
 df.loc[df['Market'].isna(), 'Market'] = df['territory'].apply(_to_market_code)
-df = df[df['Market'].notna()].copy()
+# Bucket unmapped deals as 'UNK' instead of dropping (preserves total count)
+df['Market'] = df['Market'].fillna('UNK')
 
 # Filter to Dentist Referral + Orthodontist Referral lead sources only
 # (per Court May 14, 2026: this is the canonical filter, no more pipeline filtering)
