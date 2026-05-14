@@ -43,7 +43,8 @@ DEAL_PROPERTIES = [
     "pipeline",
     # Custom + migrated properties (verified populated in HubSpot)
     "market",                                       # custom "Territory" property
-    "closed_won_time",                              # custom won time
+    "migrated_wontime",                              # ← correct won-date field (matches HubSpot UI "Won time")
+    "migrated_primary_lead_source",                  # filter to Dentist/Orthodontist Referral
     # TODO June 2026: Once HubSpot workflows populate the non-migrated versions,
     # switch these back to the clean property names (marketer_assigned,
     # zip_code, general_dentist). See GitHub issue.
@@ -241,16 +242,17 @@ def flatten_deals(deals: list, companies_by_id: dict, owners: dict):
         company = companies_by_id.get(company_id, {}) if company_id else {}
 
         rows.append({
-            "deal_id":           d.get("id"),
-            "pipeline":          props.get("pipeline", ""),
-            "deal_stage":        props.get("dealstage", ""),
-            "create_date":       props.get("createdate", ""),
-            "close_date":        props.get("closedate", ""),
-            "won_time":          props.get("closed_won_time", ""),
-            "territory":         props.get("market", ""),
-            "marketer_assigned": props.get("migrated_marketer_assigned__dentist_referral", ""),
-            "general_dentist":   props.get("migrated_general_dentist__city__phone_number", ""),
-            "deal_zip":          props.get("migrated_zip_code", ""),
+            "deal_id":            d.get("id"),
+            "pipeline":           props.get("pipeline", ""),
+            "deal_stage":         props.get("dealstage", ""),
+            "create_date":        props.get("createdate", ""),
+            "close_date":         props.get("closedate", ""),
+            "won_time":           props.get("migrated_wontime", ""),
+            "primary_lead_source": props.get("migrated_primary_lead_source", ""),
+            "territory":          props.get("market", ""),
+            "marketer_assigned":  props.get("migrated_marketer_assigned__dentist_referral", ""),
+            "general_dentist":    props.get("migrated_general_dentist__city__phone_number", ""),
+            "deal_zip":           props.get("migrated_zip_code", ""),
             "company_id":         company_id or "",
             "company_name":       company.get("name", ""),
             "company_zip":        company.get("zip", ""),

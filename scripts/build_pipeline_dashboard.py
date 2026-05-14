@@ -101,6 +101,12 @@ df['Market'] = df['company_market_lookup'].apply(_to_market_code)
 df.loc[df['Market'].isna(), 'Market'] = df['territory'].apply(_to_market_code)
 df = df[df['Market'].notna()].copy()
 
+# Filter to Dentist Referral + Orthodontist Referral lead sources only
+# (per Court May 14, 2026: this is the canonical filter, no more pipeline filtering)
+_ALLOWED_LEAD_SOURCES = {'dentist referral', 'orthodontist referral'}
+if 'primary_lead_source' in df.columns:
+    df = df[df['primary_lead_source'].fillna('').astype(str).str.strip().str.lower().isin(_ALLOWED_LEAD_SOURCES)].copy()
+
 # Map to the schema the rest of this script expects
 df['Date']     = pd.to_datetime(df['create_date'], errors='coerce', utc=True).dt.tz_localize(None)
 df = df[df['Date'].notna()].copy()

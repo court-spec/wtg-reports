@@ -85,6 +85,11 @@ df['Market'] = df['company_market_lookup'].apply(_to_market_code)
 df.loc[df['Market'].isna(), 'Market'] = df['territory'].apply(_to_market_code)
 df = df[df['Market'].notna()].copy()
 
+# Filter to Dentist/Orthodontist Referral lead sources only (Court May 14, 2026)
+_ALLOWED_LEAD_SOURCES = {'dentist referral', 'orthodontist referral'}
+if 'primary_lead_source' in df.columns:
+    df = df[df['primary_lead_source'].fillna('').astype(str).str.strip().str.lower().isin(_ALLOWED_LEAD_SOURCES)].copy()
+
 # Filter to WON deals only (won_time is the won date)
 df = df[df['won_time'].fillna('').astype(str).str.strip() != ''].copy()
 
