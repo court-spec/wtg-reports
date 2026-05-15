@@ -6,6 +6,11 @@ on:
     - cron: "0 12 * * *"
   workflow_dispatch:
 
+# Prevent concurrent runs (they race on the Google Sheet rewrite)
+concurrency:
+  group: sync-pipeline
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
