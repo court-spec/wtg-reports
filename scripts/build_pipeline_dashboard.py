@@ -854,35 +854,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;fo
     </div>
   </div>
 
-  <!-- VOLUME CHARTS — DEAL CREATION ONLY (Win charts moved to Deal Won Time Dashboard) -->
-  <div class="row">
-    <div class="vol-card" style="grid-column:1 / -1">
-      <div class="vol-header">
-        <div class="vol-title">📊 Deal Creation — Rolling 12 Months vs Prior Year</div>
-        <div class="vol-kpi">
-          <span><span class="v1" id="deal-v1">—</span><span class="v2" id="deal-v2">—</span></span>
-          <span class="chg down" id="deal-chg">—</span>
-        </div>
-      </div>
-      <div class="vol-sub">May '25 – Apr '26 compared to May '24 – Apr '25 (rolling 12 months) · deals created</div>
-      <div class="chart-wrap" style="height:160px"><canvas id="chart-deals"></canvas></div>
-    </div>
-  </div>
+  <!-- Rolling 12 Months + Weekly volume charts removed per Court May 15 (covered by new scorecards) -->
 
-  <!-- WEEKLY VOLUME CHART -->
-  <div class="row">
-    <div class="vol-card" style="grid-column:1 / -1">
-      <div class="vol-header">
-        <div class="vol-title">📅 Weekly Deal Creation — Last 12 Weeks vs Prior Year</div>
-        <div class="vol-kpi">
-          <span><span class="v1" id="wk-deal-v1">—</span><span class="v2" id="wk-deal-v2">—</span></span>
-          <span class="chg down" id="wk-deal-chg">—</span>
-        </div>
-      </div>
-      <div class="vol-sub" id="wk-deal-sub">Last 12 complete weeks vs same weeks prior year · deals created</div>
-      <div class="chart-wrap" style="height:180px"><canvas id="chart-wk-deals"></canvas></div>
-    </div>
-  </div>
 
   <!-- WEEK-RANGE ZOOM: deals created, picker -->
   <div class="row">
@@ -1036,16 +1009,7 @@ document.getElementById('cnt-watch').textContent    = fmt(DATA.alertCounts['Watc
 document.getElementById('cnt-stable').textContent   = fmt(DATA.alertCounts['Stable']||0);
 document.getElementById('cnt-momentum').textContent = fmt(DATA.alertCounts['Momentum']||0);
 
-// ── Volume KPI ───────────────────────────────────────────────────────────────
-document.getElementById('deal-v1').textContent = fmt(DATA.jf26DealKpi);
-document.getElementById('deal-v2').textContent = ' '+fmt(DATA.jf25DealKpi);
-const dealChgPct = DATA.jf25DealKpi>0 ? Math.round((DATA.jf26DealKpi/DATA.jf25DealKpi-1)*100) : 0;
-const dealChgEl = document.getElementById('deal-chg');
-dealChgEl.textContent = (dealChgPct>=0?'▲ ':'▼ ')+Math.abs(dealChgPct)+'% vs prior yr';
-dealChgEl.className = 'chg '+(dealChgPct<0?'down':'up');
-
-// (Win volume KPIs removed — Referral Deals Created Pipeline tracks deal creation only.
-//  Win-by-won-time KPIs live on the Deal Won Time Dashboard.)
+// (Volume KPI + win volume charts removed per Court May 15, 2026)
 
 // ── Charts ───────────────────────────────────────────────────────────────────
 // Territory bar chart
@@ -1090,36 +1054,7 @@ const alertChart = new Chart(document.getElementById('chart-alerts'),{
     plugins:{legend:{position:'bottom',labels:{font:{size:10},boxWidth:10}}}}
 });
 
-// Deal creation (monthly) chart
-const dealChart = new Chart(document.getElementById('chart-deals'),{
-  type:'bar',
-  data:{
-    labels:DATA.roll12Labels,
-    datasets:[
-      {label:"May '25–Apr '26",data:DATA.rollDealsCur,backgroundColor:'#1e40af'},
-      {label:"May '24–Apr '25",data:DATA.rollDealsPrev,backgroundColor:'#bfdbfe'},
-    ]
-  },
-  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
-    scales:{x:{grid:{display:false},ticks:{font:{size:9},maxRotation:45}},
-            y:{grid:{color:'#f0f0f0'},ticks:{font:{size:9}}}}}
-});
-
-// Weekly deal creation chart
-const wkDealChart = new Chart(document.getElementById('chart-wk-deals'),{
-  type:'bar',
-  data:{
-    labels:DATA.wkLabels,
-    datasets:[
-      {label:'Current Year',data:DATA.wkDealsCur,backgroundColor:'#1e40af'},
-      {label:'Prior Year',data:DATA.wkDealsPrev,backgroundColor:'#bfdbfe'},
-    ]
-  },
-  options:{responsive:true,maintainAspectRatio:false,
-    plugins:{legend:{position:'bottom',labels:{font:{size:9},boxWidth:10}}},
-    scales:{x:{grid:{display:false},ticks:{font:{size:9},maxRotation:45}},
-            y:{grid:{color:'#f0f0f0'},ticks:{font:{size:9}}}}}
-});
+// Monthly + weekly deal-creation charts removed per Court May 15, 2026
 
 // Zoom: deals created by ISO week, range picker (default Wk 2-17)
 let zoomStart = 2, zoomEnd = 17;
@@ -1421,63 +1356,7 @@ function updateCharts(){
   alertChart.data.datasets[0].data = [alerts['At Risk'],alerts['Watch'],alerts['Stable'],alerts['Momentum']];
   alertChart.update();
 
-  // ── Volume charts: recalculate deal-creation series from per-rep volume data ──
-  const numMonths = DATA.roll12Labels.length;
-  const dealsCur=Array(numMonths).fill(0), dealsPrev=Array(numMonths).fill(0);
-  Object.entries(DATA.volByRep).forEach(([key, v])=>{
-    if(fv.terrs.size>0 && !fv.terrs.has(v.terr)) return;
-    if(fv.reps.size>0 && !fv.reps.has(v.rep)) return;
-    for(let i=0;i<numMonths;i++){
-      dealsCur[i]  += v.dc[i]||0;
-      dealsPrev[i] += v.dp[i]||0;
-    }
-  });
-
-  dealChart.data.datasets[0].data = dealsCur;
-  dealChart.data.datasets[1].data = dealsPrev;
-  dealChart.update();
-
-  // ── Volume KPI (deal creation): last 2 months of the rolling window ──
-  const li = numMonths-1;  // last index (Apr '26)
-  const si = numMonths-2;  // second-to-last (Mar '26)
-  const jf26d = dealsCur[si]+dealsCur[li];
-  const jf25d = dealsPrev[si]+dealsPrev[li];
-
-  document.getElementById('deal-v1').textContent = fmt(jf26d);
-  document.getElementById('deal-v2').textContent = ' '+fmt(jf25d);
-  const dPct = jf25d>0 ? Math.round((jf26d/jf25d-1)*100) : 0;
-  const dEl = document.getElementById('deal-chg');
-  dEl.textContent = (dPct>=0?'▲ ':'▼ ')+Math.abs(dPct)+'% vs prior yr';
-  dEl.className = 'chg '+(dPct<0?'down':'up');
-
-  // ── Weekly volume chart (deal creation): recalculate from per-rep weekly data ──
-  const numWks = DATA.wkLabels.length;
-  const wkDC=Array(numWks).fill(0), wkDP=Array(numWks).fill(0);
-  Object.entries(DATA.wkVolByRep).forEach(([key, v])=>{
-    if(fv.terrs.size>0 && !fv.terrs.has(v.terr)) return;
-    if(fv.reps.size>0 && !fv.reps.has(v.rep)) return;
-    for(let i=0;i<numWks;i++){
-      wkDC[i] += v.wdc[i]||0;
-      wkDP[i] += v.wdp[i]||0;
-    }
-  });
-
-  wkDealChart.data.datasets[0].data = wkDC;
-  wkDealChart.data.datasets[1].data = wkDP;
-  wkDealChart.update();
-
-  // Weekly KPI (deal creation): sum all 12 weeks
-  const wkDCSum = wkDC.reduce((a,b)=>a+b,0);
-  const wkDPSum = wkDP.reduce((a,b)=>a+b,0);
-
-  document.getElementById('wk-deal-v1').textContent = fmt(wkDCSum);
-  document.getElementById('wk-deal-v2').textContent = ' '+fmt(wkDPSum);
-  const wkDPct = wkDPSum>0 ? Math.round((wkDCSum/wkDPSum-1)*100) : 0;
-  const wkDEl = document.getElementById('wk-deal-chg');
-  wkDEl.textContent = (wkDPct>=0?'▲ ':'▼ ')+Math.abs(wkDPct)+'% vs prior yr';
-  wkDEl.className = 'chg '+(wkDPct<0?'down':'up');
-
-  // Zoom chart respects the same filter bar
+  // (Monthly + weekly volume charts removed; only zoom chart remains)
   updateZoomChart();
 }
 
