@@ -489,7 +489,7 @@ html = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Deal Won Time Dashboard</title>
+<title>Referral Deals Closed</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -626,7 +626,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;fo
 <!-- HEADER -->
 <div class="hdr">
   <div class="hdr-left">
-    <h1>Deal Won Time Dashboard</h1>
+    <h1>Referral Deals Closed</h1>
     <div class="sub">Account Tiering &amp; Opportunity Alerts — All Territories · Based on Deal Won Date</div>
   </div>
   <div class="hdr-right">

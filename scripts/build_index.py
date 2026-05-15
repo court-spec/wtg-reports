@@ -77,11 +77,11 @@ footer {{ margin-top: 40px; text-align: center; color: #a0aec0; font-size: 12px;
 <div class="section-title">Live Dashboards <span class="live-badge">AUTO-UPDATING</span></div>
 <div class="grid">
   <a class="card live" href="pipeline_dashboard.html">
-    <h3>📊 Pipeline Action Dashboard</h3>
+    <h3>📊 Referral Deals Created Pipeline</h3>
     <p>Account performance, at-risk alerts, tier breakdown, and YoY trend by territory and rep.</p>
   </a>
   <a class="card live" href="deal_won_time_dashboard.html">
-    <h3>⏱️ Deal Won Time Dashboard</h3>
+    <h3>⏱️ Referral Deals Closed</h3>
     <p>Won-deals only. Same account view filtered to closed-won deals.</p>
   </a>
 </div>

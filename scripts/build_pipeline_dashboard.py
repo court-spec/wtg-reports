@@ -539,7 +539,7 @@ html = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Pipeline Action Dashboard</title>
+<title>Referral Deals Created Pipeline</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -676,7 +676,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;fo
 <!-- HEADER -->
 <div class="hdr">
   <div class="hdr-left">
-    <h1>Pipeline Action Dashboard</h1>
+    <h1>Referral Deals Created Pipeline</h1>
     <div class="sub">Account Tiering &amp; Opportunity Alerts — All Territories</div>
   </div>
   <div class="hdr-right">
@@ -998,7 +998,7 @@ const dealChgEl = document.getElementById('deal-chg');
 dealChgEl.textContent = (dealChgPct>=0?'▲ ':'▼ ')+Math.abs(dealChgPct)+'% vs prior yr';
 dealChgEl.className = 'chg '+(dealChgPct<0?'down':'up');
 
-// (Win volume KPIs removed — Pipeline Action Dashboard tracks deal creation only.
+// (Win volume KPIs removed — Referral Deals Created Pipeline tracks deal creation only.
 //  Win-by-won-time KPIs live on the Deal Won Time Dashboard.)
 
 // ── Charts ───────────────────────────────────────────────────────────────────
