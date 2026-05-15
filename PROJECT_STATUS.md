@@ -143,8 +143,9 @@ Pipedrive migration put the data into `migrated_<fieldname>` properties. HubSpot
 | `GOOGLE_SA_JSON` | Google Service Account JSON for writing to the sheet |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare Pages: Edit |
 | `CLOUDFLARE_ACCOUNT_ID` | Court@wisdomteethguys.com Cloudflare account ID |
-| `SPOTIO_API_TOKEN` *(new, May 14)* | For upcoming territory dashboards |
-| `SPOTIO_CLIENT_ID` *(new, May 14)* | OAuth pairing with SPOTIO_API_TOKEN |
+| `SPOTIO_API` / `SPOTIO_API_SECRET` | Spotio API secret (for territory visit data) |
+| `SPOTIO_CLIENT_ID` | Spotio client ID, paired with the API secret |
+| `PIPEDRIVE_API` | Pipedrive API token (for cross-checking migration completeness) |
 
 ---
 
@@ -172,6 +173,26 @@ Pipedrive migration put the data into `migrated_<fieldname>` properties. HubSpot
 - Edit `sync_hubspot_deals.py` → `DEAL_PROPERTIES` or `COMPANY_PROPERTIES` lists
 - Update the corresponding column in `flatten_deals()` or `companies_to_rows()`
 - Commit, push, manually trigger the workflow
+
+---
+
+## Spotio 2.0 API (auth working, endpoint discovery in progress)
+
+**Base URL**: `https://api.spotio2.com`
+**Docs**: https://developer.spotio2.com (Stoplight-hosted, SPA)
+
+**Auth flow** (working — `scripts/spotio_auth.py`):
+1. POST `https://api.spotio2.com/api/users/apitoken` with JSON `{"clientId": "...", "secret": "..."}`
+2. Response: `{"accessToken": "<JWT>"}`
+3. Use as `Authorization: Bearer <JWT>` on subsequent calls
+4. JWT lifetime ≈ 30 days; the helper caches to `.spotio_token_cache.json` and auto-refreshes
+
+**Endpoint inventory** (discovered May 15, 2026):
+- `/api/users/apitoken` — auth ✅
+- `/api/v2/activities` — POST, requires Bearer; **request body format TBD** (returns 404 referencing internal `spotio-dataobjects` route)
+- `/api/auth/token` — alternate auth path (415 = wrong content-type); not used
+
+**Use case**: pull last-visit timestamps per dental office to correlate with HubSpot referral drop-offs.
 
 ---
 
