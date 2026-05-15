@@ -507,10 +507,14 @@ for (mkt,terr,org), grp_all in df_closed.groupby(['Market','Territory','Org']):
     total_d = sum(x for x in months_d if x)
     total_w = sum(x for x in months_w if x)
     total_pct = round(total_w/total_d*100) if total_d>0 else None
+    all_marketers = sorted({m for m in grp_all['Marketer'].dropna().unique() if m})
+    pipelines_for_acct = sorted({p for p in grp_all['Pipeline'].dropna().unique() if p}) if 'Pipeline' in grp_all.columns else []
     heatmap_rows.append({'mkt':mkt,'terr':terr,'rep':mk_display,'org':org,
         'months_d':months_d,'months_w':months_w,
         'months_d_prev':months_d_prev,'months_w_prev':months_w_prev,
-        'total_d':total_d,'total_w':total_w,'total_pct':total_pct})
+        'total_d':total_d,'total_w':total_w,'total_pct':total_pct,
+        'all_marketers':all_marketers,
+        'pipelines':pipelines_for_acct})
 
 print(f"Heatmap rows: {len(heatmap_rows)}")
 
@@ -1504,12 +1508,18 @@ function renderTerrCell(mkt, terr){
 function getFilteredHeatmap(){
   const terrs=getSelectedTerrs();
   const reps=getSelectedReps();
+  const pipeline=document.getElementById('f-pipeline')?.value || '';
+  const numMonths = (DATA.roll12MonthLabels||[]).length;
+  const totalColIdx = 3 + numMonths;  // dynamic: was hardcoded 16
   let rows=DATA.heatmap.filter(r=>
-    (terrs.size===0||terrs.has(r.terr))&&(reps.size===0||reps.has(r.rep)));
+    (terrs.size===0||terrs.has(r.terr)) &&
+    (reps.size===0|| (r.all_marketers||[]).some(m=>reps.has(m))) &&
+    (!pipeline || (r.pipelines||[]).includes(pipeline))
+  );
   if(hmSortCol!==null){
     rows.sort((a,b)=>{
       let va,vb;
-      if(hmSortCol===16){ // total
+      if(hmSortCol===totalColIdx){ // 12MO TOTAL column
         va=hmMode==='pct'?(a.total_d>0?a.total_w/a.total_d:0):(hmMode==='wins'?a.total_w:a.total_d);
         vb=hmMode==='pct'?(b.total_d>0?b.total_w/b.total_d:0):(hmMode==='wins'?b.total_w:b.total_d);
       } else {
