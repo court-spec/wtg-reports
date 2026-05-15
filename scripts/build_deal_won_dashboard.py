@@ -189,13 +189,46 @@ def tier_label(w):
     if w>=5:  return 'Tier 2'
     return 'Tier 3'
 
-# ── KPI aggregates ────────────────────────────────────────────────────────────
+# ── KPI aggregates (legacy — for older chart code) ───────────────────────────
 total_t12m  = len(df_won[(df_won['Date']>=T12M_START)&(df_won['Date']<=T12M_END)])
 total_2025  = len(df_won[df_won['Year']==2025])
 total_2024  = len(df_won[df_won['Year']==2024])
 jf26_total  = len(df_won[(df_won['Year']==2026)&(df_won['Month'].isin([3,4]))])  # Mar+Apr '26
 jf25_total  = len(df_won[(df_won['Year']==2025)&(df_won['Month'].isin([3,4]))])  # Mar+Apr '25
 jf_yoy_pct  = round((jf26_total/jf25_total - 1)*100,1) if jf25_total else 0
+
+# ── New scorecards (Wins) ────────────────────────────────────────────────────
+# df_won['Date'] = won_time
+_iso_today = _today.isocalendar()
+_cur_iso_year, _cur_iso_week = _iso_today.year, _iso_today.week
+_dates_iso = df_won['Date'].dt.isocalendar()
+
+# Wins this week / last week
+wins_this_week = int(((_dates_iso.year == _cur_iso_year) & (_dates_iso.week == _cur_iso_week)).sum())
+if _cur_iso_week == 1:
+    _last_iso_week = 52; _last_iso_year = _cur_iso_year - 1
+else:
+    _last_iso_week = _cur_iso_week - 1; _last_iso_year = _cur_iso_year
+wins_last_week = int(((_dates_iso.year == _last_iso_year) & (_dates_iso.week == _last_iso_week)).sum())
+
+# Trailing 90 days vs previous 90 days
+_90 = _today - pd.Timedelta(days=90)
+_180 = _today - pd.Timedelta(days=180)
+wins_last_90   = int(((df_won['Date'] > _90) & (df_won['Date'] <= _today)).sum())
+wins_prev_90   = int(((df_won['Date'] > _180) & (df_won['Date'] <= _90)).sum())
+wins_90_pct    = round((wins_last_90 / wins_prev_90 - 1)*100, 1) if wins_prev_90 else 0
+
+# YTD vs same period LY
+_ytd_start  = pd.Timestamp(year=_today.year, month=1, day=1)
+_ytd_ly_start = pd.Timestamp(year=_today.year - 1, month=1, day=1)
+_ytd_ly_end   = _today - pd.DateOffset(years=1)
+wins_ytd    = int(((df_won['Date'] >= _ytd_start) & (df_won['Date'] <= _today)).sum())
+wins_ytd_ly = int(((df_won['Date'] >= _ytd_ly_start) & (df_won['Date'] <= _ytd_ly_end)).sum())
+wins_ytd_pct = round((wins_ytd / wins_ytd_ly - 1)*100, 1) if wins_ytd_ly else 0
+
+print(f"Won KPIs: this_week={wins_this_week}, last_week={wins_last_week}, "
+      f"90d={wins_last_90} vs {wins_prev_90} ({wins_90_pct:+}%), "
+      f"YTD={wins_ytd} vs LY {wins_ytd_ly} ({wins_ytd_pct:+}%)")
 
 # ── Per-account data ─────────────────────────────────────────────────────────
 print("Computing per-account metrics…")
@@ -454,6 +487,11 @@ payload = {
     'kpi': {
         't12m': total_t12m, '2025': total_2025, '2024': total_2024,
         'jfYoy': jf_yoy_pct, 'jf26': jf26_total, 'jf25': jf25_total,
+        # New scorecards
+        'thisWeek': wins_this_week,
+        'lastWeek': wins_last_week,
+        'last90': wins_last_90, 'prev90': wins_prev_90, 'pct90': wins_90_pct,
+        'ytd': wins_ytd, 'ytdLY': wins_ytd_ly, 'ytdPct': wins_ytd_pct,
     },
     'alertCounts': alert_counts,
     'tierCounts': tier_counts,
@@ -693,24 +731,24 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;fo
   <!-- KPI ROW 1 -->
   <div class="row" id="kpi-row1">
     <div class="kpi-card">
-      <div class="label">T12M Wins</div>
-      <div class="value" id="kpi-t12m">—</div>
-      <div class="sub">Trailing 12 months</div>
+      <div class="label">Wins This Week</div>
+      <div class="value" id="kpi-this-week">—</div>
+      <div class="sub">Current ISO week</div>
     </div>
     <div class="kpi-card">
-      <div class="label">2025 Wins</div>
-      <div class="value" id="kpi-2025">—</div>
-      <div class="sub">Full year 2025</div>
+      <div class="label">Wins Last Week</div>
+      <div class="value" id="kpi-last-week">—</div>
+      <div class="sub">Previous ISO week</div>
     </div>
-    <div class="kpi-card">
-      <div class="label">2024 Wins</div>
-      <div class="value" id="kpi-2024">—</div>
-      <div class="sub">Full year 2024</div>
+    <div class="kpi-card" id="kpi-90d-card">
+      <div class="label">Trailing 90 Days vs Prev 90</div>
+      <div class="value" id="kpi-90d">—</div>
+      <div class="sub" id="kpi-90d-sub">—</div>
     </div>
-    <div class="kpi-card" id="kpi-jf-card">
-      <div class="label">Mar+Apr YoY (Active Accts)</div>
-      <div class="value" id="kpi-jf">—</div>
-      <div class="sub" id="kpi-jf-sub">vs same window '25</div>
+    <div class="kpi-card" id="kpi-ytd-card">
+      <div class="label">YTD vs LY</div>
+      <div class="value" id="kpi-ytd">—</div>
+      <div class="sub" id="kpi-ytd-sub">—</div>
     </div>
   </div>
 
@@ -887,14 +925,22 @@ function trendHtml(t){
   return '<span class="trend-flat">→</span>';
 }
 
-// ── Init KPI cards ───────────────────────────────────────────────────────────
-document.getElementById('kpi-t12m').textContent = fmt(DATA.kpi.t12m);
-document.getElementById('kpi-2025').textContent = fmt(DATA.kpi['2025']);
-document.getElementById('kpi-2024').textContent = fmt(DATA.kpi['2024']);
-const jfEl = document.getElementById('kpi-jf');
-const jfPct = DATA.kpi.jfYoy;
-jfEl.textContent = (jfPct>=0?'+':'')+jfPct.toFixed(1)+'%';
-jfEl.parentElement.classList.add(jfPct<0?'neg':'pos');
+// ── Init KPI cards (Wins) ───────────────────────────────────────────────────
+document.getElementById('kpi-this-week').textContent = fmt(DATA.kpi.thisWeek);
+document.getElementById('kpi-last-week').textContent = fmt(DATA.kpi.lastWeek);
+
+const k90 = document.getElementById('kpi-90d');
+k90.textContent = fmt(DATA.kpi.last90);
+const pct90 = DATA.kpi.pct90;
+document.getElementById('kpi-90d-sub').textContent = `vs ${fmt(DATA.kpi.prev90)} prior 90 (${pct90>=0?'+':''}${pct90.toFixed(1)}%)`;
+document.getElementById('kpi-90d-card').classList.add(pct90<0?'neg':'pos');
+
+const kytd = document.getElementById('kpi-ytd');
+kytd.textContent = fmt(DATA.kpi.ytd);
+const pctytd = DATA.kpi.ytdPct;
+document.getElementById('kpi-ytd-sub').textContent = `vs ${fmt(DATA.kpi.ytdLY)} same period LY (${pctytd>=0?'+':''}${pctytd.toFixed(1)}%)`;
+document.getElementById('kpi-ytd-card').classList.add(pctytd<0?'neg':'pos');
+
 document.getElementById('acct-count').textContent = fmt(DATA.totalAccounts)+' accounts';
 
 document.getElementById('cnt-risk').textContent     = fmt(DATA.alertCounts['At Risk']||0);
@@ -1234,20 +1280,7 @@ function updateCharts(){
   const filtAccts = DATA.accounts.filter(a=>matchesFilter(a, fv));
   const activeAccts = filtAccts.filter(a=>a.jf26>0||a.jf25>0);
 
-  // ── KPI scorecards: recalculate from filtered accounts ──
-  const fT12m = filtAccts.reduce((s,a)=>s+(a.t12m||0),0);
-  const f2025 = filtAccts.reduce((s,a)=>s+(a.w2025||0),0);
-  const f2024 = filtAccts.reduce((s,a)=>s+(a.w2024||0),0);
-  const fJf26 = filtAccts.reduce((s,a)=>s+(a.jf26||0),0);
-  const fJf25 = filtAccts.reduce((s,a)=>s+(a.jf25||0),0);
-  const fJfPct = fJf25>0 ? Math.round((fJf26/fJf25-1)*1000)/10 : 0;
-  document.getElementById('kpi-t12m').textContent = fmt(fT12m);
-  document.getElementById('kpi-2025').textContent = fmt(f2025);
-  document.getElementById('kpi-2024').textContent = fmt(f2024);
-  const jfKpiEl = document.getElementById('kpi-jf');
-  jfKpiEl.textContent = (fJfPct>=0?'+':'')+fJfPct.toFixed(1)+'%';
-  jfKpiEl.parentElement.classList.remove('neg','pos');
-  jfKpiEl.parentElement.classList.add(fJfPct<0?'neg':'pos');
+  // KPI scorecards show global totals (not per-filter — would need per-week per-account data)
   document.getElementById('acct-count').textContent = fmt(filtAccts.length)+' accounts';
 
   // ── Territory bar: recalculate from filtered accounts ──
