@@ -167,7 +167,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .dd-menu.open { display: block; }
 .dd-menu label { display: block; font-size: 13px; padding: 4px 6px; cursor: pointer; }
 .dd-menu label:hover { background: #f3f4f6; border-radius: 4px; }
-.dd-actions { display: flex; gap: 6px; padding: 6px 4px; border-top: 1px solid #eee; margin-top: 4px; }
+.dd-actions { display: flex; gap: 6px; padding: 6px 4px; border-bottom: 1px solid #eee; margin-bottom: 4px; position: sticky; top: 0; background: #fff; z-index: 2; }
 .dd-actions button { font-size: 11px; padding: 3px 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; }
 .dd-actions button.primary { background: #1e3a5f; color: #fff; border-color: #1e3a5f; }
 .reset-btn { margin-left: auto; background: #fff; border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 14px; font-size: 12px; color: #555; cursor: pointer; }
@@ -287,6 +287,12 @@ const filters = { ls: new Set(), pl: new Set(), te: new Set() };
 function buildDropdown(prefix, labels) {
   const menu = document.getElementById(prefix+'-menu');
   menu.innerHTML = '';
+  // Actions bar PINNED TO TOP (sticky) so user doesn't have to scroll
+  const actions = document.createElement('div'); actions.className = 'dd-actions';
+  actions.innerHTML = `<button onclick="ddSelectAll('${prefix}')">All</button>
+    <button onclick="ddSelectNone('${prefix}')">None</button>
+    <button class="primary" onclick="ddApply('${prefix}')">Apply</button>`;
+  menu.appendChild(actions);
   labels.forEach((lbl, idx) => {
     const lab = document.createElement('label');
     const cb = document.createElement('input');
@@ -295,11 +301,6 @@ function buildDropdown(prefix, labels) {
     lab.appendChild(document.createTextNode(' ' + lbl));
     menu.appendChild(lab);
   });
-  const actions = document.createElement('div'); actions.className = 'dd-actions';
-  actions.innerHTML = `<button onclick="ddSelectAll('${prefix}')">All</button>
-    <button onclick="ddSelectNone('${prefix}')">None</button>
-    <button class="primary" onclick="ddApply('${prefix}')">Apply</button>`;
-  menu.appendChild(actions);
   const btn = document.getElementById(prefix+'-btn');
   btn.onclick = e => { e.stopPropagation();
     document.querySelectorAll('.dd-menu').forEach(m => { if (m !== menu) m.classList.remove('open'); });
