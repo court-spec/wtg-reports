@@ -103,9 +103,13 @@ df = df[df["create_dt"] >= "2024-01-01"].copy()
 # ─────────────────────────────────────────────────────────────────────────────
 
 def codes(series):
-    uniq = sorted(series.unique())
+    """Order labels by deal count desc (most-used first). Returns (labels_with_counts, codes_per_row)."""
+    counts = series.value_counts()  # already sorted desc
+    uniq = counts.index.tolist()
+    # Display label includes count: "Dentist Referral  (20,905)"
+    labels_display = [f"{v}  ({counts[v]:,})" for v in uniq]
     code_map = {v: i for i, v in enumerate(uniq)}
-    return uniq, [code_map[v] for v in series]
+    return labels_display, [code_map[v] for v in series]
 
 ls_labels, ls_codes  = codes(df["lead_source"])
 pl_labels, pl_codes  = codes(df["pipeline_label"])
