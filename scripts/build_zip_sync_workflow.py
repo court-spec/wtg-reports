@@ -32,14 +32,21 @@ NAME = "[PAUSED] Sync Zip on Company Association (Deal ↔ Company)"
 
 SOURCE_CODE = r"""const hubspot = require('@hubspot/api-client');
 
-exports.main = async (event, callback) => {
-  // Pick the best deal-side zip we already have
-  const dealPostal = (event.inputFields['postal_code'] || '').trim();
-  const migrated  = (event.inputFields['migrated_zip_code'] || '').trim();
-  const zipCode   = (event.inputFields['zip_code'] || '').trim();
-  let dealZip = dealPostal || migrated || zipCode || '';
+// LOGIC: Company zip ALWAYS wins (referral source location drives territory),
+// patient/deal zip is only used when the company has no zip yet.
+//
+//   company.zip set      → set deal.postal_code = company.zip   (override)
+//   company.zip empty    → push the deal's zip into company.zip (fill in)
+//   both empty           → leave both alone
+//   no company associated → fall back to whatever deal-side zip exists
 
-  let resultZip = dealZip;
+exports.main = async (event, callback) => {
+  const dealPostal = (event.inputFields['postal_code'] || '').trim();
+  const migrated   = (event.inputFields['migrated_zip_code'] || '').trim();
+  const zipCode    = (event.inputFields['zip_code'] || '').trim();
+  const dealOwnZip = dealPostal || migrated || zipCode || '';
+
+  let resultZip = dealOwnZip;  // default: keep whatever the deal already has
 
   try {
     const client = new hubspot.Client({ accessToken: process.env.HUBSPOT_ACCESS_TOKEN });
@@ -50,26 +57,25 @@ exports.main = async (event, callback) => {
     );
     const results = assocResp.results || [];
 
-    for (const assoc of results) {
-      const companyId = assoc.toObjectId;
+    if (results.length > 0) {
+      const companyId = results[0].toObjectId;  // first/primary associated company
       const co = await client.crm.companies.basicApi.getById(companyId, ['zip']);
       const companyZip = (co.properties.zip || '').trim();
 
-      if (!dealZip && companyZip) {
-        // Deal is empty, company has zip → pull company.zip onto deal
+      if (companyZip) {
+        // Company zip exists → it ALWAYS wins, even over a deal-side zip
         resultZip = companyZip;
-      } else if (dealZip && !companyZip) {
-        // Deal has zip, company is empty → push deal.zip onto company
+      } else if (dealOwnZip) {
+        // Company is missing zip but deal has one → fill in company.zip
         await client.crm.companies.basicApi.update(companyId, {
-          properties: { zip: dealZip }
+          properties: { zip: dealOwnZip }
         });
+        resultZip = dealOwnZip;
       }
-      // If both have values, preserve both (no change either direction)
-      // Only process the first associated company (deals can have multiple)
-      break;
+      // else: both empty → no-op
     }
   } catch (e) {
-    // Non-fatal — return whatever we have
+    // Non-fatal — return whatever deal-side zip we had
   }
 
   callback({ outputFields: { zip: resultZip } });
@@ -90,11 +96,12 @@ def build_flow():
     return {
         "name": NAME,
         "description": (
-            "Triggers when a deal gains an associated company (or loses/changes one). "
-            "Bidirectionally syncs zip: if the deal has a zip and the company doesn't, "
-            "the deal's zip is copied to company.zip. If the company has a zip and the "
-            "deal doesn't, the company's zip is copied to deal.postal_code. If both have "
-            "values, neither is overwritten. Built via API and kept paused for testing."
+            "Triggers when a deal gains/changes an associated company. "
+            "Company zip ALWAYS wins (referral source drives territory): "
+            "if the associated company has a zip, copy it onto deal.postal_code, "
+            "overriding any existing patient-home zip on the deal. "
+            "If the company has no zip but the deal does, fill in company.zip. "
+            "If both empty, no-op. Built via API; paused for testing."
         ),
         "isEnabled": False,
         "type": "PLATFORM_FLOW",
