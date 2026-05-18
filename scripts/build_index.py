@@ -84,6 +84,10 @@ footer {{ margin-top: 40px; text-align: center; color: #a0aec0; font-size: 12px;
     <h3>⏱️ Referral Deals Closed</h3>
     <p>Won-deals only. Same account view filtered to closed-won deals.</p>
   </a>
+  <a class="card live" href="executive_dashboard.html">
+    <h3>📊 Executive Dashboard</h3>
+    <p>Deals Created (forward indicator) + Deals Closed by week. Filter by Lead Source, Pipeline, and Territory.</p>
+  </a>
 </div>
 
 <div class="section-title">Archived Reports (Point-in-Time)</div>

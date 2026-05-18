@@ -40,6 +40,12 @@ jobs:
           GOOGLE_SA_JSON:  ${{ secrets.GOOGLE_SA_JSON }}
         run: python -u scripts/build_deal_won_dashboard.py
 
+      - name: Build Executive Dashboard
+        env:
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SA_JSON:  ${{ secrets.GOOGLE_SA_JSON }}
+        run: python -u scripts/build_executive_dashboard.py
+
       - name: Build landing page
         run: python -u scripts/build_index.py
 
