@@ -32,8 +32,8 @@ NAME = "[PAUSED] Sync Zip on Company Association (Deal ↔ Company)"
 
 SOURCE_CODE = r"""const hubspot = require('@hubspot/api-client');
 
-// LOGIC: Company zip ALWAYS wins (referral source location drives territory),
-// patient/deal zip is only used when the company has no zip yet.
+// LOGIC: Company zip wins when known. If company is missing zip, keep deal as-is
+// (never write to the company — avoids polluting insurance-company records, etc.)
 
 exports.main = async (event, callback) => {
   const dealPostal = (event.inputFields['postal_code'] || '').trim();
@@ -43,6 +43,7 @@ exports.main = async (event, callback) => {
   console.log('[zip-sync] inputs:', { dealPostal, migrated, zipCode, dealOwnZip });
 
   let resultZip = dealOwnZip;
+  let action = 'no-change';
   let debug = '';
 
   try {
@@ -63,29 +64,30 @@ exports.main = async (event, callback) => {
       debug += `;coId=${companyId}`;
 
       const co = await client.crm.companies.basicApi.getById(companyId, ['zip']);
-      console.log('[zip-sync] company properties:', JSON.stringify(co.properties));
       const companyZip = (co.properties.zip || '').trim();
       debug += `;coZip="${companyZip}"`;
 
       if (companyZip) {
         resultZip = companyZip;
-        console.log('[zip-sync] using company zip:', companyZip);
-      } else if (dealOwnZip) {
-        console.log('[zip-sync] pushing deal zip to company:', dealOwnZip);
-        await client.crm.companies.basicApi.update(companyId, {
-          properties: { zip: dealOwnZip }
-        });
-        resultZip = dealOwnZip;
+        action = 'pull-company-zip-to-deal';
+        console.log('[zip-sync] PULL: using company zip:', companyZip);
+      } else {
+        action = 'skip-company-zip-empty';
+        console.log('[zip-sync] SKIP: company zip is empty — leaving everything alone');
       }
+    } else {
+      action = 'skip-no-company';
+      console.log('[zip-sync] SKIP: no company associated');
     }
   } catch (e) {
     console.log('[zip-sync] ERROR:', e.message || e);
     if (e.response && e.response.body) console.log('[zip-sync] error body:', JSON.stringify(e.response.body));
     debug += `;err=${e.message || e}`;
+    action = 'error';
   }
 
-  console.log('[zip-sync] final resultZip:', resultZip);
-  callback({ outputFields: { zip: resultZip, debug: debug } });
+  console.log('[zip-sync] action:', action, 'final resultZip:', resultZip);
+  callback({ outputFields: { zip: resultZip, debug: debug, action: action } });
 };
 """
 
@@ -104,11 +106,11 @@ def build_flow():
         "name": NAME,
         "description": (
             "Triggers when a deal gains/changes an associated company. "
-            "Company zip ALWAYS wins (referral source drives territory): "
-            "if the associated company has a zip, copy it onto deal.postal_code, "
-            "overriding any existing patient-home zip on the deal. "
-            "If the company has no zip but the deal does, fill in company.zip. "
-            "If both empty, no-op. Built via API; paused for testing."
+            "If the company has a zip, copy it onto deal.postal_code (referral source "
+            "drives territory). If the company has no zip, do nothing to the company — "
+            "deal.postal_code falls back to the deal's existing zip "
+            "(postal_code → migrated_zip_code → zip_code). Never writes to companies, "
+            "so insurance-company associations can't get corrupted. Paused for testing."
         ),
         "isEnabled": False,
         "type": "PLATFORM_FLOW",
@@ -157,6 +159,7 @@ def build_flow():
                 "outputFields": [
                     {"name": "zip", "type": "STRING"},
                     {"name": "debug", "type": "STRING"},
+                    {"name": "action", "type": "STRING"},
                 ],
                 "connection": {"edgeType": "STANDARD", "nextActionId": "2"},
                 "type": "CUSTOM_CODE",
