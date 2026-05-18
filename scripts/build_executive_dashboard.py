@@ -69,6 +69,20 @@ df.loc[df["lead_source"] == "", "lead_source"] = "(none)"
 df["pipeline_label"] = df["pipeline_name"].fillna("").astype(str).str.strip()
 df.loc[df["pipeline_label"] == "", "pipeline_label"] = "(no pipeline)"
 
+# Lock to the 7 main "Wisdom Teeth Guys" pipelines (both clean + Pipedrive-suffixed variants).
+# Excludes Bad Deals / Office Referrals / Lease Search / Test / Imported / etc.
+_ALLOWED_CITIES = {"dallas","houston","san antonio","austin","utah","phoenix","tucson"}
+def _is_main_wtg(name: str) -> bool:
+    s = name.lower().strip()
+    if "wisdom teeth guys" not in s: return False
+    # name looks like "Dallas - Wisdom Teeth Guys" or "Dallas - Wisdom Teeth Guys Pipedrive"
+    city = s.split(" - ")[0].strip()
+    return city in _ALLOWED_CITIES
+
+_before = len(df)
+df = df[df["pipeline_label"].apply(_is_main_wtg)].copy()
+print(f"  Filtered to 7 main WTG pipelines: {len(df):,} of {_before:,} deals ({_before-len(df):,} excluded)")
+
 # Territory: prefer fine company territory, fall back to broad market, then deal-level
 def first_nonblank(*vals):
     for v in vals:
