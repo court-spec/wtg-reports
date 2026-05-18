@@ -167,9 +167,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .dd-menu.open { display: block; }
 .dd-menu label { display: block; font-size: 13px; padding: 4px 6px; cursor: pointer; }
 .dd-menu label:hover { background: #f3f4f6; border-radius: 4px; }
-.dd-actions { display: flex; gap: 6px; padding: 6px 4px; border-bottom: 1px solid #eee; margin-bottom: 4px; position: sticky; top: 0; background: #fff; z-index: 2; }
+.dd-sticky { position: sticky; top: 0; background: #fff; z-index: 2; padding: 6px 4px; border-bottom: 1px solid #eee; margin-bottom: 4px; }
+.dd-actions { display: flex; gap: 6px; margin-bottom: 6px; }
 .dd-actions button { font-size: 11px; padding: 3px 10px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; }
 .dd-actions button.primary { background: #1e3a5f; color: #fff; border-color: #1e3a5f; }
+.dd-search { width: 100%; padding: 5px 8px; font-size: 12px; border: 1px solid #d1d5db; border-radius: 4px; box-sizing: border-box; }
+.dd-search:focus { outline: none; border-color: #1e3a5f; }
 .reset-btn { margin-left: auto; background: #fff; border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 14px; font-size: 12px; color: #555; cursor: pointer; }
 
 .content { padding: 24px 28px; max-width: 1600px; margin: 0 auto; }
@@ -287,12 +290,26 @@ const filters = { ls: new Set(), pl: new Set(), te: new Set() };
 function buildDropdown(prefix, labels) {
   const menu = document.getElementById(prefix+'-menu');
   menu.innerHTML = '';
-  // Actions bar PINNED TO TOP (sticky) so user doesn't have to scroll
+  // Sticky header at top: actions + search box
+  const sticky = document.createElement('div'); sticky.className = 'dd-sticky';
   const actions = document.createElement('div'); actions.className = 'dd-actions';
   actions.innerHTML = `<button onclick="ddSelectAll('${prefix}')">All</button>
     <button onclick="ddSelectNone('${prefix}')">None</button>
     <button class="primary" onclick="ddApply('${prefix}')">Apply</button>`;
-  menu.appendChild(actions);
+  sticky.appendChild(actions);
+  const search = document.createElement('input');
+  search.type = 'search'; search.className = 'dd-search';
+  search.placeholder = 'Search…';
+  search.addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    menu.querySelectorAll('label').forEach(lab => {
+      const txt = lab.textContent.toLowerCase();
+      lab.style.display = (q === '' || txt.includes(q)) ? '' : 'none';
+    });
+  });
+  search.addEventListener('click', e => e.stopPropagation());
+  sticky.appendChild(search);
+  menu.appendChild(sticky);
   labels.forEach((lbl, idx) => {
     const lab = document.createElement('label');
     const cb = document.createElement('input');
@@ -308,10 +325,21 @@ function buildDropdown(prefix, labels) {
   };
 }
 function ddSelectAll(prefix){
-  document.querySelectorAll(`#${prefix}-menu input[type=checkbox]`).forEach(c => c.checked = true);
+  // Only toggle items currently visible (respects search filter)
+  document.querySelectorAll(`#${prefix}-menu label`).forEach(lab => {
+    if (lab.style.display !== 'none') {
+      const cb = lab.querySelector('input[type=checkbox]');
+      if (cb) cb.checked = true;
+    }
+  });
 }
 function ddSelectNone(prefix){
-  document.querySelectorAll(`#${prefix}-menu input[type=checkbox]`).forEach(c => c.checked = false);
+  document.querySelectorAll(`#${prefix}-menu label`).forEach(lab => {
+    if (lab.style.display !== 'none') {
+      const cb = lab.querySelector('input[type=checkbox]');
+      if (cb) cb.checked = false;
+    }
+  });
 }
 function ddApply(prefix){
   const all = [...document.querySelectorAll(`#${prefix}-menu input[type=checkbox]`)];
