@@ -1,0 +1,24 @@
+# Marketer registry. Each entry maps a stable slug → Drive folder + local xlsx.
+#
+# Pilot phase: only abi_nilles. Other 13 added in Phase 2 once layout is approved.
+# `xlsx` is a path relative to this file's directory — Phase 2 will replace this
+# with on-the-fly Drive downloads.
+
+marketers:
+  brooklyn_hill:
+    name: Brooklyn Hill
+    territory: Dallas SW
+    drive_folder_id: 1FTD92FM_J8hzQKPHxtlulwFDQ7CStEbc
+    drive_file_id: 134IL03krmUefp52e4ECG47anIpdGcQkS
+    xlsx: data/brooklyn_hill.xlsx
+    spotio_user_id: "668722"
+    spotio_territory_id: "216221"   # Dallas Southwest
+
+  abi_nilles:
+    name: Abigail Nilles
+    territory: Houston SE
+    drive_folder_id: 1sGBY55ZwBParFfF34kS_yJLZtkJbdT2L
+    drive_file_id: 1cSA6JHoPOHS2nam88RxYIduS_-jo7vr_
+    xlsx: data/abi_nilles.xlsx
+    spotio_user_id: "431657"
+    spotio_territory_id: "113273"   # Houston SE
