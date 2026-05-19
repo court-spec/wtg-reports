@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
 """
-Google Ads Dashboard — absolutes only.
+Google Ads Dashboard — per-city, with This Year vs Prior Year comparison.
 
-Per-city view:
-  - Google Ads spend (from google_ads_raw)
-  - HubSpot deals created where primary_lead_source = "Google Adwords PPC"
-  - HubSpot deals won (subset)
-  - Raw "effective CPA" = spend / won deals (city-level)
+Top filter: week range (default = current week only, "isolated week").
+For each city we show TY vs LY across the selected weeks:
+  - Spend  |  Clicks  |  Created (PPC) deals  |  Won (PPC) deals  |  Effective CPA
+Plus weekly bar charts overlaying TY vs LY for spend and deals.
 
-No campaign-level attribution attempted — Pipedrive migration stripped GCLID
-so we work in absolutes by city.
-
-Env: GOOGLE_SHEET_ID, GOOGLE_SA_JSON
-Output: out/google_ads_dashboard.html
+No attempt at campaign-level attribution — Pipedrive migration stripped GCLID,
+so we work in city-level absolutes.
 """
 
 import json
@@ -49,32 +45,30 @@ ga, deals = load_sheet()
 print(f"  → {len(ga)} Google Ads rows, {len(deals)} deals")
 
 
-# ─── Google Ads side: parse city from campaign name ───
 def city_from_campaign(name):
     s = (name or "").lower()
     for c in CITIES:
-        # Match "Dallas", "Dallas - Branded", "Performance Max - Dallas", etc.
         if re.search(rf"\b{c.lower()}\b", s):
             return c
     return None
 
+
+# ─── Google Ads side ───
 ga["date"] = pd.to_datetime(ga["date"], errors="coerce")
 ga = ga.dropna(subset=["date"]).copy()
-ga["cost_usd"] = pd.to_numeric(ga["cost_usd"], errors="coerce").fillna(0.0)
-ga["clicks"] = pd.to_numeric(ga["clicks"], errors="coerce").fillna(0).astype(int)
-ga["impressions"] = pd.to_numeric(ga["impressions"], errors="coerce").fillna(0).astype(int)
-ga["conversions"] = pd.to_numeric(ga["conversions"], errors="coerce").fillna(0.0)
-ga["city"] = ga["campaign_name"].apply(city_from_campaign)
-ga["cw"] = ga["date"].dt.isocalendar().apply(lambda r: f"{int(r['year'])}-W{int(r['week']):02d}", axis=1) if False else ga["date"].apply(lambda d: f"{d.isocalendar().year}-W{d.isocalendar().week:02d}")
-
-ga_unmapped = ga[ga["city"].isna()]
-if len(ga_unmapped):
-    print(f"  ! {len(ga_unmapped)} Google Ads rows with unmapped campaign name:")
-    print("    " + ", ".join(sorted(ga_unmapped["campaign_name"].unique())[:10]))
+ga["cost_usd"]     = pd.to_numeric(ga["cost_usd"], errors="coerce").fillna(0.0)
+ga["clicks"]       = pd.to_numeric(ga["clicks"], errors="coerce").fillna(0).astype(int)
+ga["impressions"]  = pd.to_numeric(ga["impressions"], errors="coerce").fillna(0).astype(int)
+ga["city"]         = ga["campaign_name"].apply(city_from_campaign)
 ga = ga[ga["city"].notna()].copy()
 
+# ISO year + week per row
+iso = ga["date"].dt.isocalendar()
+ga["iso_year"] = iso["year"].astype(int)
+ga["iso_week"] = iso["week"].astype(int)
 
-# ─── HubSpot deals side: city from pipeline, filter to Google Ads PPC ───
+
+# ─── HubSpot deals side ───
 _CITY_FOR_PIPELINE = {
     "dallas - wisdom teeth guys":              "Dallas",
     "dallas - wisdom teeth guys pipedrive":    "Dallas",
@@ -90,87 +84,75 @@ _CITY_FOR_PIPELINE = {
     "phoenix - wisdom teeth guys pipedrive":   "Phoenix",
     "tucson - wisdom teeth guys":              "Tucson",
 }
-deals["pipeline_label"] = deals["pipeline_name"].fillna("").astype(str).str.strip()
-deals["city"] = deals["pipeline_label"].str.lower().map(_CITY_FOR_PIPELINE)
+deals["city"] = deals["pipeline_name"].fillna("").astype(str).str.strip().str.lower().map(_CITY_FOR_PIPELINE)
 deals = deals[deals["city"].notna()].copy()
-
 deals["create_dt"] = pd.to_datetime(deals["create_date"], errors="coerce", utc=True).dt.tz_localize(None)
 deals["won_dt"]    = pd.to_datetime(deals["won_time"],    errors="coerce", utc=True).dt.tz_localize(None)
 deals["lead_source"] = deals["primary_lead_source"].fillna("").astype(str).str.strip().str.lower()
-# Lock to Google Ads PPC deals
 ads_deals = deals[deals["lead_source"] == "google adwords ppc"].copy()
-print(f"  Google-Ads-PPC deals in HubSpot: {len(ads_deals):,}")
 
-def iso_label(ts):
-    if pd.isna(ts): return None
-    iy, iw, _ = ts.isocalendar()
-    return f"{iy}-W{iw:02d}"
-
-ads_deals["cw"] = ads_deals["create_dt"].apply(iso_label)
-ads_deals["ww"] = ads_deals["won_dt"].apply(iso_label)
+# ISO year/week for create_dt and won_dt
+for col in ("create_dt", "won_dt"):
+    valid = ads_deals[col].notna()
+    iso = ads_deals.loc[valid, col].dt.isocalendar()
+    ads_deals.loc[valid, f"{col}_iy"] = iso["year"].astype(int).values
+    ads_deals.loc[valid, f"{col}_iw"] = iso["week"].astype(int).values
 
 
-# ─── Build per-city week-keyed aggregations ───
-# Limit to current date range covered by Google Ads (last ~30 days)
-min_date = ga["date"].min().date()
-max_date = ga["date"].max().date()
-print(f"  Google Ads coverage: {min_date} → {max_date}")
+# ─── Aggregate by (city, iso_year, iso_week) ───
+spend = ga.groupby(["city","iso_year","iso_week"])["cost_usd"].sum().to_dict()
+clicks = ga.groupby(["city","iso_year","iso_week"])["clicks"].sum().to_dict()
+impr   = ga.groupby(["city","iso_year","iso_week"])["impressions"].sum().to_dict()
 
-# Restrict deals to the same period for fair comparison
-ads_deals_in_window = ads_deals[
-    (ads_deals["create_dt"] >= pd.Timestamp(min_date)) &
-    (ads_deals["create_dt"] <= pd.Timestamp(max_date) + pd.Timedelta(days=1))
-].copy()
-
-# Aggregate per city per week
-spend_by_city_week = ga.groupby(["city", "cw"])["cost_usd"].sum().to_dict()
-clicks_by_city_week = ga.groupby(["city", "cw"])["clicks"].sum().to_dict()
-impr_by_city_week  = ga.groupby(["city", "cw"])["impressions"].sum().to_dict()
-
-created_by_city_week = ads_deals_in_window.groupby(["city","cw"]).size().to_dict()
-# Won = any deal where won_dt falls in window (regardless of creation date — booking view)
-won_view = ads_deals[(ads_deals["won_dt"] >= pd.Timestamp(min_date)) &
-                     (ads_deals["won_dt"] <= pd.Timestamp(max_date) + pd.Timedelta(days=1))]
-won_by_city_week = won_view.groupby(["city","ww"]).size().to_dict()
+created = ads_deals.dropna(subset=["create_dt_iy"]).groupby(
+    ["city","create_dt_iy","create_dt_iw"]
+).size().to_dict()
+won = ads_deals.dropna(subset=["won_dt_iy"]).groupby(
+    ["city","won_dt_iy","won_dt_iw"]
+).size().to_dict()
 
 
-# All weeks in the range, sorted
-all_weeks = sorted(set([w for (_, w) in spend_by_city_week.keys()]))
+# ─── Identify the years we have data for ───
+ga_years = sorted(ga["iso_year"].unique().tolist())
+hubspot_years = sorted(set(ads_deals["create_dt_iy"].dropna().astype(int).unique()) | set(ads_deals["won_dt_iy"].dropna().astype(int).unique()))
+print(f"  Google Ads years: {ga_years}")
+print(f"  HubSpot ad-deal years: {hubspot_years}")
+
+# All weeks present in either dataset (1-53)
+all_weeks = sorted(set(ga["iso_week"].unique().tolist()) | set(range(1, 54)))
 
 
-# Build per-city series
-def series(city, byCityWeek):
-    return [byCityWeek.get((city, w), 0) for w in all_weeks]
+# Build cell lookup: (city, year, week) → metrics
+def make_series(d):
+    """Return dict {city: {year: {week: value}}}."""
+    out = {c: {} for c in CITIES}
+    for (city, y, w), v in d.items():
+        if city not in out: continue
+        try:
+            y_int = int(y); w_int = int(w)
+        except (TypeError, ValueError): continue
+        out[city].setdefault(y_int, {})[w_int] = v
+    return out
 
-city_data = {}
-for c in CITIES:
-    city_data[c] = {
-        "spend":   [round(spend_by_city_week.get((c,w), 0), 2) for w in all_weeks],
-        "clicks":  [int(clicks_by_city_week.get((c,w), 0)) for w in all_weeks],
-        "impr":    [int(impr_by_city_week.get((c,w), 0)) for w in all_weeks],
-        "created": [int(created_by_city_week.get((c,w), 0)) for w in all_weeks],
-        "won":     [int(won_by_city_week.get((c,w), 0)) for w in all_weeks],
-    }
-
-# Overall totals
-overall = {
-    "spend":   [sum(city_data[c]["spend"][i] for c in CITIES) for i in range(len(all_weeks))],
-    "clicks":  [sum(city_data[c]["clicks"][i] for c in CITIES) for i in range(len(all_weeks))],
-    "impr":    [sum(city_data[c]["impr"][i] for c in CITIES) for i in range(len(all_weeks))],
-    "created": [sum(city_data[c]["created"][i] for c in CITIES) for i in range(len(all_weeks))],
-    "won":     [sum(city_data[c]["won"][i] for c in CITIES) for i in range(len(all_weeks))],
-}
-city_data = {"Overall": overall, **city_data}
+spend_s   = make_series(spend)
+clicks_s  = make_series(clicks)
+impr_s    = make_series(impr)
+created_s = make_series(created)
+won_s     = make_series(won)
 
 
 UPDATE_DATE = datetime.now(timezone.utc).strftime("%B %-d, %Y")
 DATA = {
-    "updateDate": UPDATE_DATE,
-    "cities":     ["Overall"] + CITIES,
-    "weeks":      all_weeks,
-    "perCity":    city_data,
-    "windowStart": str(min_date),
-    "windowEnd":   str(max_date),
+    "updateDate":    UPDATE_DATE,
+    "cities":        CITIES,
+    "gaYears":       ga_years,
+    "deals": {
+        "spend":   spend_s,
+        "clicks":  clicks_s,
+        "impr":    impr_s,
+        "created": created_s,
+        "won":     won_s,
+    },
 }
 
 
@@ -179,7 +161,7 @@ HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Google Ads Dashboard</title>
+<title>Google Ads Dashboard · YoY</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -193,24 +175,37 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .banner { background: #fffbeb; border-bottom: 1px solid #fde68a; padding: 10px 28px; font-size: 12px; color: #92400e; }
 .banner b { font-weight: 700; }
 
+.filters { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 14px 28px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; position: sticky; top: 0; z-index: 10; }
+.fg { display: flex; align-items: center; gap: 8px; }
+.fg label { font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; }
+.wk-input { width: 60px; padding: 5px 8px; font-size: 13px; border: 1px solid #d1d5db; border-radius: 6px; }
+.year-select { padding: 5px 8px; font-size: 13px; border: 1px solid #d1d5db; border-radius: 6px; }
+.apply-btn { font-size: 12px; padding: 6px 14px; border: 1px solid #1e3a5f; background: #1e3a5f; color: #fff; border-radius: 6px; cursor: pointer; }
+.preset-btn { font-size: 11px; padding: 5px 10px; border: 1px solid #d1d5db; background: #fff; border-radius: 6px; cursor: pointer; color: #4b5563; }
+.preset-btn:hover { background: #f3f4f6; }
+
 .summary { padding: 20px 28px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; max-width: 1800px; margin: 0 auto; }
 .kpi { background: #fff; border-radius: 10px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
 .kpi .label { font-size: 10px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
-.kpi .value { font-size: 24px; font-weight: 700; color: #1a2e4a; }
-.kpi .sub { font-size: 11px; color: #888; margin-top: 4px; }
+.kpi .value { font-size: 22px; font-weight: 700; color: #1a2e4a; }
+.kpi .sub { font-size: 11px; color: #6b7280; margin-top: 4px; }
+.kpi .sub .delta.up { color: #16a34a; font-weight: 600; }
+.kpi .sub .delta.down { color: #dc2626; font-weight: 600; }
 
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 0 28px 24px; max-width: 1800px; margin: 0 auto; }
 @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
 .panel { background: #fff; border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
 .panel h3 { font-size: 16px; color: #1e3a5f; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
 .panel h3 .city-tag { background: #e0f2fe; color: #075985; font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
-.row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 8px; font-size: 12px; }
-.row .stat { background: #f8fafc; border-radius: 6px; padding: 8px 10px; }
-.row .stat .l { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.4px; }
-.row .stat .v { font-size: 16px; font-weight: 700; color: #1e3a5f; margin-top: 2px; }
-.chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 6px; }
+.metrics-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-bottom: 10px; }
+.metrics-table th, .metrics-table td { padding: 6px 8px; text-align: right; border-bottom: 1px solid #f1f5f9; }
+.metrics-table th { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.4px; text-align: right; }
+.metrics-table th:first-child, .metrics-table td:first-child { text-align: left; font-weight: 600; color: #1e3a5f; }
+.delta.up { color: #16a34a; font-weight: 600; }
+.delta.down { color: #dc2626; font-weight: 600; }
+.chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
 .chart-block .chart-label { font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
-.chart-block .chart-wrap { height: 130px; }
+.chart-block .chart-wrap { height: 140px; }
 footer { text-align: center; font-size: 11px; color: #9ca3af; padding: 20px; }
 </style>
 </head>
@@ -218,8 +213,8 @@ footer { text-align: center; font-size: 11px; color: #9ca3af; padding: 20px; }
 
 <div class="header">
   <div>
-    <h1>💰 Google Ads Dashboard</h1>
-    <div class="meta">Spend, clicks, and HubSpot-attributed deals (lead source = Google Adwords PPC), by city</div>
+    <h1>💰 Google Ads Dashboard · YoY</h1>
+    <div class="meta">Spend, clicks, and HubSpot PPC deals — This Year vs Prior Year by week range</div>
   </div>
   <div>
     <a class="back" href="index.html">← All reports</a>
@@ -228,99 +223,219 @@ footer { text-align: center; font-size: 11px; color: #9ca3af; padding: 20px; }
 </div>
 
 <div class="banner">
-  <b>Reading note:</b> "Created" and "Won" come from HubSpot deals where Primary Lead Source = "Google Adwords PPC".
-  These are <i>absolute counts</i> — Pipedrive migration stripped GCLID, so we can't attribute deals to specific campaigns yet.
-  CPA shown is city-level: total city spend ÷ city won. Window: <span id="window-range">—</span>.
+  <b>Attribution note:</b> Created/Won counts are HubSpot deals where Primary Lead Source = "Google Adwords PPC".
+  Pipedrive migration stripped GCLID so we can't tie spend to specific deals yet — CPA shown is city-level (total spend ÷ total won).
+</div>
+
+<div class="filters">
+  <div class="fg">
+    <label>This Year</label>
+    <select class="year-select" id="ty"></select>
+  </div>
+  <div class="fg">
+    <label>Prior Year</label>
+    <select class="year-select" id="ly"></select>
+  </div>
+  <div class="fg">
+    <label>Week Range</label>
+    <input class="wk-input" type="number" id="wk-start" min="1" max="53" value="20">
+    <span style="color:#9ca3af">→</span>
+    <input class="wk-input" type="number" id="wk-end" min="1" max="53" value="20">
+    <button class="apply-btn" onclick="refresh()">Apply</button>
+  </div>
+  <div class="fg">
+    <button class="preset-btn" onclick="setRange(currentWeek(), currentWeek())">This Week</button>
+    <button class="preset-btn" onclick="setRange(currentWeek()-1, currentWeek()-1)">Last Week</button>
+    <button class="preset-btn" onclick="setRange(currentWeek()-3, currentWeek())">Last 4 Wks</button>
+    <button class="preset-btn" onclick="setRange(currentWeek()-12, currentWeek())">Last 13 Wks</button>
+    <button class="preset-btn" onclick="setRange(1, currentWeek())">YTD</button>
+  </div>
 </div>
 
 <div class="summary" id="summary"></div>
 <div class="grid" id="grid"></div>
-<footer>Auto-updated daily · Google Ads (campaign-day) + HubSpot deals filtered by lead source</footer>
+<footer>Auto-updated daily · Google Ads (2-yr history) + HubSpot deals where Lead Source = Google Adwords PPC</footer>
 
 <script>
 const DATA = __DATA_JSON__;
 document.getElementById('update-date').textContent = DATA.updateDate;
-document.getElementById('window-range').textContent = `${DATA.windowStart} → ${DATA.windowEnd}`;
+
+function currentWeek(){
+  const d = new Date();
+  const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dayNum = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  return Math.ceil((((target - yearStart) / 86400000) + 1) / 7);
+}
+function currentYear(){
+  const d = new Date();
+  const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dayNum = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - dayNum);
+  return target.getUTCFullYear();
+}
 
 const fmt = n => (n || 0).toLocaleString();
-const fmt$ = n => '$' + (Math.round((n||0) * 100)/100).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
-const sum = arr => arr.reduce((a,b)=>a+b, 0);
+const fmt$ = n => '$' + (Math.round((n||0)*100)/100).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+const pctDelta = (cur, prev) => prev > 0 ? Math.round((cur/prev - 1)*100) : null;
 
-const cityColor = {
-  "Overall":      "#1e3a5f",
-  "Dallas":       "#1e40af",
-  "Houston":      "#0891b2",
-  "San Antonio":  "#0d9488",
-  "Austin":       "#65a30d",
-  "Phoenix":      "#ea580c",
-  "Utah":         "#7c3aed",
-  "Tucson":       "#db2777",
-};
-
-// Summary KPIs from Overall
-const o = DATA.perCity['Overall'];
-const totalSpend = sum(o.spend);
-const totalClicks = sum(o.clicks);
-const totalCreated = sum(o.created);
-const totalWon = sum(o.won);
-const overallCpa = totalWon > 0 ? totalSpend / totalWon : null;
-document.getElementById('summary').innerHTML = `
-  <div class="kpi"><div class="label">Total Spend</div><div class="value">${fmt$(totalSpend)}</div><div class="sub">across all cities</div></div>
-  <div class="kpi"><div class="label">Total Clicks</div><div class="value">${fmt(totalClicks)}</div><div class="sub">Google Ads</div></div>
-  <div class="kpi"><div class="label">Deals Created</div><div class="value">${fmt(totalCreated)}</div><div class="sub">Lead Source = Google Adwords PPC</div></div>
-  <div class="kpi"><div class="label">Deals Won</div><div class="value">${fmt(totalWon)}</div><div class="sub">in window</div></div>
-  <div class="kpi"><div class="label">Effective CPA</div><div class="value">${overallCpa !== null ? fmt$(overallCpa) : '—'}</div><div class="sub">spend ÷ won</div></div>
-`;
-
-// Build per-city panels
-const grid = document.getElementById('grid');
-DATA.cities.forEach(city => {
-  const d = DATA.perCity[city];
-  const ttlSpend = sum(d.spend), ttlClicks = sum(d.clicks), ttlCreated = sum(d.created), ttlWon = sum(d.won);
-  const cpa = ttlWon > 0 ? ttlSpend / ttlWon : null;
-  const cpc = ttlClicks > 0 ? ttlSpend / ttlClicks : null;
-
-  const panel = document.createElement('div'); panel.className = 'panel';
-  const safeId = city.replace(/\\s+/g,'-').toLowerCase();
-  panel.innerHTML = `
-    <h3>${city} <span class="city-tag">${city.toUpperCase()}</span></h3>
-    <div class="row">
-      <div class="stat"><div class="l">Spend</div><div class="v">${fmt$(ttlSpend)}</div></div>
-      <div class="stat"><div class="l">Clicks</div><div class="v">${fmt(ttlClicks)}</div></div>
-      <div class="stat"><div class="l">Created (PPC)</div><div class="v">${fmt(ttlCreated)}</div></div>
-      <div class="stat"><div class="l">Won (PPC)</div><div class="v">${fmt(ttlWon)}</div></div>
-    </div>
-    <div class="row" style="grid-template-columns: 1fr 1fr">
-      <div class="stat"><div class="l">Avg CPC</div><div class="v">${cpc !== null ? fmt$(cpc) : '—'}</div></div>
-      <div class="stat"><div class="l">Effective CPA (spend ÷ won)</div><div class="v">${cpa !== null ? fmt$(cpa) : '—'}</div></div>
-    </div>
-    <div class="chart-row">
-      <div class="chart-block"><div class="chart-label">Weekly Spend</div><div class="chart-wrap"><canvas id="${safeId}-spend"></canvas></div></div>
-      <div class="chart-block"><div class="chart-label">Created vs Won (PPC deals)</div><div class="chart-wrap"><canvas id="${safeId}-deals"></canvas></div></div>
-    </div>`;
-  grid.appendChild(panel);
-
-  const color = cityColor[city] || '#666';
-  new Chart(document.getElementById(`${safeId}-spend`), {
-    type: 'bar',
-    data: { labels: DATA.weeks, datasets: [{ label: 'Spend ($)', data: d.spend, backgroundColor: color }] },
-    options: { responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { x: { grid: { display: false }, ticks: { font: { size: 9 } } },
-                y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 9 }, callback: v => '$' + v } } } }
-  });
-  new Chart(document.getElementById(`${safeId}-deals`), {
-    type: 'bar',
-    data: { labels: DATA.weeks, datasets: [
-      { label: 'Created', data: d.created, backgroundColor: color + '70' },
-      { label: 'Won',     data: d.won,     backgroundColor: color },
-    ]},
-    options: { responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'bottom', labels: { font: { size: 9 }, boxWidth: 10 } } },
-      scales: { x: { grid: { display: false }, ticks: { font: { size: 9 } } },
-                y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 9 } } } } }
-  });
+// Populate year selectors
+const years = DATA.gaYears.length ? DATA.gaYears : [currentYear() - 1, currentYear()];
+years.sort();
+const tySel = document.getElementById('ty');
+const lySel = document.getElementById('ly');
+years.forEach(y => {
+  tySel.innerHTML += `<option value="${y}">${y}</option>`;
+  lySel.innerHTML += `<option value="${y}">${y}</option>`;
 });
+tySel.value = currentYear();
+lySel.value = Math.max(...years.filter(y => y < currentYear()), years[0]);
+
+// Default week range: current week, both endpoints
+const cw = currentWeek();
+document.getElementById('wk-start').value = cw;
+document.getElementById('wk-end').value   = cw;
+
+function setRange(s, e){
+  document.getElementById('wk-start').value = Math.max(1, s);
+  document.getElementById('wk-end').value   = Math.max(s, e);
+  refresh();
+}
+
+function sumWeeks(seriesByYear, year, weeks){
+  let total = 0;
+  const yearMap = (seriesByYear || {})[year] || {};
+  for (const w of weeks) total += (yearMap[w] || 0);
+  return total;
+}
+
+function buildKpi(label, cur, prev, isCurrency){
+  const formatted = isCurrency ? fmt$(cur) : fmt(cur);
+  const pd = pctDelta(cur, prev);
+  let delta = '';
+  if (pd !== null) {
+    const sign = pd >= 0 ? '▲' : '▼';
+    const cls  = pd >= 0 ? 'up' : 'down';
+    delta = `<span class="delta ${cls}">${sign} ${Math.abs(pd)}%</span>`;
+  } else if (prev === 0 && cur > 0) {
+    delta = `<span class="delta up">▲ new</span>`;
+  }
+  const prevFmt = isCurrency ? fmt$(prev) : fmt(prev);
+  return `<div class="kpi"><div class="label">${label}</div><div class="value">${formatted}</div>
+    <div class="sub">vs ${prevFmt} ${delta}</div></div>`;
+}
+
+function refresh(){
+  const ty = parseInt(tySel.value);
+  const ly = parseInt(lySel.value);
+  const s  = parseInt(document.getElementById('wk-start').value) || 1;
+  const e  = parseInt(document.getElementById('wk-end').value)   || cw;
+  const weeks = [];
+  for (let w = s; w <= e; w++) weeks.push(w);
+
+  // Overall totals
+  let totalSpendCur = 0, totalSpendPrev = 0;
+  let totalClicksCur = 0, totalClicksPrev = 0;
+  let totalCreatedCur = 0, totalCreatedPrev = 0;
+  let totalWonCur = 0, totalWonPrev = 0;
+  DATA.cities.forEach(c => {
+    totalSpendCur   += sumWeeks(DATA.deals.spend[c],   ty, weeks);
+    totalSpendPrev  += sumWeeks(DATA.deals.spend[c],   ly, weeks);
+    totalClicksCur  += sumWeeks(DATA.deals.clicks[c],  ty, weeks);
+    totalClicksPrev += sumWeeks(DATA.deals.clicks[c],  ly, weeks);
+    totalCreatedCur  += sumWeeks(DATA.deals.created[c], ty, weeks);
+    totalCreatedPrev += sumWeeks(DATA.deals.created[c], ly, weeks);
+    totalWonCur     += sumWeeks(DATA.deals.won[c],     ty, weeks);
+    totalWonPrev    += sumWeeks(DATA.deals.won[c],     ly, weeks);
+  });
+  const cpaCur  = totalWonCur  > 0 ? totalSpendCur  / totalWonCur  : null;
+  const cpaPrev = totalWonPrev > 0 ? totalSpendPrev / totalWonPrev : null;
+
+  document.getElementById('summary').innerHTML = `
+    ${buildKpi('Total Spend',   totalSpendCur,   totalSpendPrev,   true)}
+    ${buildKpi('Total Clicks',  totalClicksCur,  totalClicksPrev,  false)}
+    ${buildKpi('Created (PPC)', totalCreatedCur, totalCreatedPrev, false)}
+    ${buildKpi('Won (PPC)',     totalWonCur,     totalWonPrev,     false)}
+    ${buildKpi('Effective CPA', cpaCur || 0,     cpaPrev || 0,     true)}
+  `;
+  document.title = `Google Ads · ${ty} vs ${ly} · Wk ${s}${s!==e?'–'+e:''}`;
+
+  // Per-city panels
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  DATA.cities.forEach(city => {
+    const tySpend   = sumWeeks(DATA.deals.spend[city],   ty, weeks);
+    const lySpend   = sumWeeks(DATA.deals.spend[city],   ly, weeks);
+    const tyClicks  = sumWeeks(DATA.deals.clicks[city],  ty, weeks);
+    const lyClicks  = sumWeeks(DATA.deals.clicks[city],  ly, weeks);
+    const tyCreated = sumWeeks(DATA.deals.created[city], ty, weeks);
+    const lyCreated = sumWeeks(DATA.deals.created[city], ly, weeks);
+    const tyWon     = sumWeeks(DATA.deals.won[city],     ty, weeks);
+    const lyWon     = sumWeeks(DATA.deals.won[city],     ly, weeks);
+    const tyCpa = tyWon > 0 ? tySpend / tyWon : null;
+    const lyCpa = lyWon > 0 ? lySpend / lyWon : null;
+
+    const safe = city.replace(/\\s+/g,'-').toLowerCase();
+    const panel = document.createElement('div'); panel.className = 'panel';
+    const deltaCell = (cur, prev) => {
+      const pd = pctDelta(cur, prev);
+      if (pd === null) return '<td>—</td>';
+      const cls = pd >= 0 ? 'up' : 'down';
+      const sign = pd >= 0 ? '▲' : '▼';
+      return `<td class="delta ${cls}">${sign} ${Math.abs(pd)}%</td>`;
+    };
+    panel.innerHTML = `
+      <h3>${city} <span class="city-tag">${city.toUpperCase()}</span></h3>
+      <table class="metrics-table">
+        <thead><tr><th></th><th>${ty}</th><th>${ly}</th><th>Δ</th></tr></thead>
+        <tbody>
+          <tr><td>Spend</td><td>${fmt$(tySpend)}</td><td>${fmt$(lySpend)}</td>${deltaCell(tySpend, lySpend)}</tr>
+          <tr><td>Clicks</td><td>${fmt(tyClicks)}</td><td>${fmt(lyClicks)}</td>${deltaCell(tyClicks, lyClicks)}</tr>
+          <tr><td>Created (PPC)</td><td>${fmt(tyCreated)}</td><td>${fmt(lyCreated)}</td>${deltaCell(tyCreated, lyCreated)}</tr>
+          <tr><td>Won (PPC)</td><td>${fmt(tyWon)}</td><td>${fmt(lyWon)}</td>${deltaCell(tyWon, lyWon)}</tr>
+          <tr><td>Effective CPA</td><td>${tyCpa ? fmt$(tyCpa) : '—'}</td><td>${lyCpa ? fmt$(lyCpa) : '—'}</td>${deltaCell(tyCpa || 0, lyCpa || 0)}</tr>
+        </tbody>
+      </table>
+      <div class="chart-row">
+        <div class="chart-block"><div class="chart-label">Weekly Spend</div><div class="chart-wrap"><canvas id="${safe}-spend"></canvas></div></div>
+        <div class="chart-block"><div class="chart-label">Weekly Won (PPC)</div><div class="chart-wrap"><canvas id="${safe}-won"></canvas></div></div>
+      </div>`;
+    grid.appendChild(panel);
+
+    // Charts: weekly bars, TY vs LY
+    const labels = weeks.map(w => `W${w}`);
+    const tySpendBars = weeks.map(w => (DATA.deals.spend[city]?.[ty]?.[w]) || 0);
+    const lySpendBars = weeks.map(w => (DATA.deals.spend[city]?.[ly]?.[w]) || 0);
+    const tyWonBars   = weeks.map(w => (DATA.deals.won[city]?.[ty]?.[w]) || 0);
+    const lyWonBars   = weeks.map(w => (DATA.deals.won[city]?.[ly]?.[w]) || 0);
+
+    new Chart(document.getElementById(`${safe}-spend`), {
+      type: 'bar',
+      data: { labels, datasets: [
+        { label: ty, data: tySpendBars, backgroundColor: '#1e40af' },
+        { label: ly, data: lySpendBars, backgroundColor: '#1e40af40' },
+      ]},
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { font: { size: 9 }, boxWidth: 10 } } },
+        scales: { x: { grid: { display: false }, ticks: { font: { size: 9 } } },
+                  y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 9 }, callback: v => '$' + v } } } }
+    });
+    new Chart(document.getElementById(`${safe}-won`), {
+      type: 'bar',
+      data: { labels, datasets: [
+        { label: ty, data: tyWonBars, backgroundColor: '#16a34a' },
+        { label: ly, data: lyWonBars, backgroundColor: '#16a34a40' },
+      ]},
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { font: { size: 9 }, boxWidth: 10 } } },
+        scales: { x: { grid: { display: false }, ticks: { font: { size: 9 } } },
+                  y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 9 } } } } }
+    });
+  });
+}
+
+refresh();
 </script>
 </body>
 </html>

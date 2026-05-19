@@ -67,8 +67,11 @@ client = GoogleAdsClient.load_from_dict(ads_config)
 ga_service = client.get_service("GoogleAdsService")
 
 
-# ─── Query: daily campaign performance for last 180 days ───
-QUERY = """
+# ─── Query: daily campaign performance for last ~2 years (for YoY comparisons) ───
+from datetime import date, timedelta
+_end = date.today()
+_start = _end - timedelta(days=730)
+QUERY = f"""
 SELECT
     campaign.id,
     campaign.name,
@@ -83,7 +86,7 @@ SELECT
     metrics.ctr,
     metrics.average_cpc
 FROM campaign
-WHERE segments.date DURING LAST_30_DAYS
+WHERE segments.date BETWEEN '{_start.isoformat()}' AND '{_end.isoformat()}'
 """
 
 print(f"Querying Google Ads (customer {OPERATING_CUSTOMER_ID})…", flush=True)
