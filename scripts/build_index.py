@@ -88,6 +88,10 @@ footer {{ margin-top: 40px; text-align: center; color: #a0aec0; font-size: 12px;
     <h3>📊 Executive Dashboard</h3>
     <p>Deals Created (forward indicator) + Deals Closed by week. Filter by Lead Source, Pipeline, and Territory.</p>
   </a>
+  <a class="card live" target="_blank" rel="noopener" href="google_ads_dashboard.html">
+    <h3>💰 Google Ads Dashboard</h3>
+    <p>Google Ads spend by city + HubSpot deals attributed to Google Adwords PPC. Effective CPA by location.</p>
+  </a>
 </div>
 
 <div class="section-title">Archived Reports (Point-in-Time)</div>
