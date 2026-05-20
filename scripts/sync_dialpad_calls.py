@@ -79,10 +79,11 @@ def request_stats(target_id: str, target_type: str = "callcenter"):
         "target_id":        target_id,
         "target_type":      target_type,
         "stat_type":        "calls",
+        "export_type":      "stats",   # required by Dialpad
         "is_today":         False,
         "timezone":         "America/Chicago",
         "group_by":         "day",
-        "stat_type_filters": ["call_count"],
+        "coaching_group":   False,
     }
     r = requests.post(f"{BASE}/stats", headers={**H, "Content-Type": "application/json"},
                       json=payload, timeout=30)
