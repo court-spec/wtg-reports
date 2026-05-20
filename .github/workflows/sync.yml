@@ -40,6 +40,14 @@ jobs:
         run: python -u scripts/sync_google_ads.py
         continue-on-error: true  # don't block dashboard builds if Google Ads sync fails
 
+      - name: Sync Dialpad calls → Google Sheets
+        env:
+          DIALPAD_API_KEY:  ${{ secrets.DIALPAD_API_KEY }}
+          GOOGLE_SHEET_ID:  ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SA_JSON:   ${{ secrets.GOOGLE_SA_JSON }}
+        run: python -u scripts/sync_dialpad_calls.py
+        continue-on-error: true
+
       - name: Build Pipeline Action Dashboard
         env:
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
