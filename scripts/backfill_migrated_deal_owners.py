@@ -169,6 +169,8 @@ for d in pull_migrated_deals():
     current_pc = (p.get("patient_coordinator") or "").strip()
     target_owner = resolve_owner(marketer_text)
 
+    # Simple rule: if migrated marketer is known and resolves to a HubSpot owner,
+    # set hubspot_owner_id to that. Don't touch patient_coordinator.
     if not marketer_text:
         stats["no_marketer_text"] += 1
         decision = "SKIP (no marketer text)"
@@ -179,23 +181,13 @@ for d in pull_migrated_deals():
     elif current_owner == target_owner:
         stats["already_correct"] += 1
         decision = "SKIP (already correct)"
-    elif not current_owner:
-        # No current owner — just set the marketer
-        stats["set_owner_only"] += 1
-        decision = "SET owner only"
+    else:
+        stats["set_owner"] += 1
+        decision = f"SET owner = {marketer_text}"
         to_update.append({
             "id": deal_id,
             "properties": {"hubspot_owner_id": target_owner}
         })
-    else:
-        # Need to move current owner to patient_coordinator, then set new owner
-        stats["full_swap"] += 1
-        decision = "SWAP owner→PC + set owner=marketer"
-        props = {"hubspot_owner_id": target_owner}
-        # Only set PC if it's empty (don't overwrite existing PC)
-        if not current_pc:
-            props["patient_coordinator"] = current_owner
-        to_update.append({"id": deal_id, "properties": props})
 
     rows_out.append({
         "deal_id": deal_id,

@@ -1,0 +1,21 @@
+name: Dialpad unique callers (standalone)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  unique:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests gspread google-auth
+
+      - name: Sync Dialpad unique callers
+        env:
+          DIALPAD_API_KEY:   ${{ secrets.DIALPAD_API_KEY }}
+          GOOGLE_SA_JSON:    ${{ secrets.GOOGLE_SA_JSON }}
+          DIALPAD_SHEET_ID:  "1kgbR1-mk2thgba4kdc8tqIfoLvPYfzrn2tU4V_8Eqi8"
+        run: python -u scripts/sync_dialpad_unique_callers.py
