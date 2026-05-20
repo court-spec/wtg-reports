@@ -1,0 +1,22 @@
+name: Dialpad sync (standalone)
+
+on:
+  workflow_dispatch:
+
+# Doesn't share concurrency with the main sync — can run in parallel
+jobs:
+  dialpad:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests gspread google-auth
+
+      - name: Sync Dialpad calls
+        env:
+          DIALPAD_API_KEY:  ${{ secrets.DIALPAD_API_KEY }}
+          GOOGLE_SHEET_ID:  ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SA_JSON:   ${{ secrets.GOOGLE_SA_JSON }}
+        run: python -u scripts/sync_dialpad_calls.py

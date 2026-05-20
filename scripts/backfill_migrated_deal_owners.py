@@ -75,50 +75,83 @@ for o in owners:
 for nm, oid in NAME_OVERRIDES.items():
     name_to_owner[nm.lower()] = oid
 
+import re
 def resolve_owner(marketer_text):
     if not marketer_text: return None
-    return name_to_owner.get(marketer_text.strip().lower())
+    raw = marketer_text.strip()
+    # Strip "x-Don't Use-" / "x- Don't Use -" prefixes (deprecated marketer entries)
+    cleaned = re.sub(r"^x[-\s]*don[’']?t\s*use[-\s]*", "", raw, flags=re.IGNORECASE).strip()
+    if cleaned.lower() == "orphan":
+        return None  # genuinely orphaned — skip
+    # Exact match
+    owner = name_to_owner.get(cleaned.lower())
+    if owner: return owner
+    # First-name-only fallback (HubSpot owners sometimes lack last name)
+    first = cleaned.split()[0].lower() if cleaned else ""
+    if first:
+        for k, v in name_to_owner.items():
+            if k == first or k.startswith(first + " "):
+                return v
+    return None
 
 
 # ─── Step 2: pull all migrated deals ───
 def pull_migrated_deals():
-    """Yield batches of migrated deals (those with migrated_record_id)."""
+    """Yield migrated dental/ortho referral deals, chunked by createdate month to bypass the 10K search cap."""
+    from datetime import datetime, timezone
+    import calendar
     url = "https://api.hubapi.com/crm/v3/objects/deals/search"
-    after = None
     total = 0
-    while True:
-        payload = {
-            "filterGroups": [{"filters": [
-                {"propertyName": "migrated_record_id", "operator": "HAS_PROPERTY"},
-                {"propertyName": "migrated_primary_lead_source",
-                 "operator": "IN",
-                 "values": ["Dentist Referral", "Orthodontist Referral"]},
-            ]}],
-            "properties": ["hubspot_owner_id",
-                           "migrated_marketer_assigned__dentist_referral",
-                           "patient_coordinator", "migrated_record_id",
-                           "migrated_primary_lead_source"],
-            "limit": 100,
-            "sorts": [{"propertyName": "createdate", "direction": "DESCENDING"}],
-        }
-        if after: payload["after"] = after
-        r = requests.post(url, headers=HEADERS, json=payload, timeout=30)
-        if r.status_code == 429:
-            time.sleep(2); continue
-        body = r.json()
-        results = body.get("results", [])
-        if not results: break
-        total += len(results)
-        if total % 1000 == 0 or total < 100:
-            print(f"  … {total} migrated deals scanned")
-        for d in results: yield d
-        nxt = body.get("paging", {}).get("next")
-        if not nxt: break
-        after = nxt.get("after")
-        # Safety: search API caps at 10K — chunk by record_id ranges if needed (not needed for backfill validation)
-        if total >= 10000:
-            print(f"  ! hit 10K search cap; for full backfill we'll chunk by record_id range later")
-            break
+
+    # Build month windows from 2018 → now (Pipedrive history)
+    windows = []
+    y, m = 2018, 1
+    now = datetime.now(timezone.utc)
+    while (y, m) <= (now.year, now.month):
+        next_y, next_m = (y, m + 1) if m < 12 else (y + 1, 1)
+        windows.append((datetime(y, m, 1, tzinfo=timezone.utc),
+                         datetime(next_y, next_m, 1, tzinfo=timezone.utc)))
+        y, m = next_y, next_m
+
+    def to_ms(dt): return str(int(dt.timestamp() * 1000))
+
+    for w_idx, (start, end) in enumerate(windows, 1):
+        after = None
+        win_count = 0
+        while True:
+            payload = {
+                "filterGroups": [{"filters": [
+                    {"propertyName": "migrated_record_id", "operator": "HAS_PROPERTY"},
+                    {"propertyName": "migrated_primary_lead_source",
+                     "operator": "IN",
+                     "values": ["Dentist Referral", "Orthodontist Referral"]},
+                    {"propertyName": "createdate", "operator": "GTE", "value": to_ms(start)},
+                    {"propertyName": "createdate", "operator": "LT",  "value": to_ms(end)},
+                ]}],
+                "properties": ["hubspot_owner_id",
+                               "migrated_marketer_assigned__dentist_referral",
+                               "patient_coordinator", "migrated_record_id",
+                               "migrated_primary_lead_source"],
+                "limit": 100,
+                "sorts": [{"propertyName": "createdate", "direction": "ASCENDING"}],
+            }
+            if after: payload["after"] = after
+            r = requests.post(url, headers=HEADERS, json=payload, timeout=30)
+            if r.status_code == 429:
+                time.sleep(2); continue
+            body = r.json()
+            results = body.get("results", [])
+            if not results: break
+            total += len(results); win_count += len(results)
+            for d in results: yield d
+            nxt = body.get("paging", {}).get("next")
+            if not nxt: break
+            after = nxt.get("after")
+            if win_count >= 10000:
+                print(f"  ! window {start:%Y-%m} hit 10K cap — may miss some deals in this month")
+                break
+        if win_count > 0:
+            print(f"  window {w_idx:>3d}/{len(windows)} ({start:%Y-%m}): +{win_count} (total {total})")
 
 
 # ─── Step 3: process + emit CSV ───
