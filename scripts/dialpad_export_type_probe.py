@@ -6,9 +6,18 @@ import os, time, requests
 H = {"Authorization": f"Bearer {os.environ['DIALPAD_API_KEY']}", "Accept": "application/json"}
 BASE = "https://dialpad.com/api/v2"
 
-# Get a center
-centers = requests.get(f"{BASE}/callcenters", headers=H, params={"limit": 5}, timeout=20).json().get("items", [])
-target = next((c for c in centers if "*Dallas - WTG Main" in c.get("name", "")), centers[0])
+# Get a busy inbound center (page through to find Dallas inbound)
+all_centers = []
+cur = None
+while True:
+    params = {"limit": 100}
+    if cur: params["cursor"] = cur
+    body = requests.get(f"{BASE}/callcenters", headers=H, params=params, timeout=20).json()
+    all_centers.extend(body.get("items", []))
+    cur = body.get("cursor")
+    if not cur: break
+print(f"Total centers: {len(all_centers)}")
+target = next((c for c in all_centers if "*Dallas - WTG Main" in c.get("name", "")), all_centers[0])
 cid = str(target["id"])
 print(f"Using center: {target['name']} (id={cid})\n", flush=True)
 
